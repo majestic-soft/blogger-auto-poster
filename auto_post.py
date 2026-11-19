@@ -1,5 +1,7 @@
 import json
 import os
+import urllib.parse
+import urllib.request
 from google import genai
 from google.genai import types
 from google.oauth2.credentials import Credentials
@@ -32,9 +34,12 @@ def generate_auto_topic(past_topics):
     client = get_client()
     avoid_list = "\n".join(f"- {t}" for t in past_topics[-50:]) if past_topics else "None yet"
     prompt = f"""
-    Suggest ONE fresh, high-intent SEO blog topic for MajesticSoft (majesticsoft.in),
+    Suggest ONE specific, long-tail SEO blog topic for MajesticSoft (majesticsoft.in),
     a digital solutions company offering Mobile App Development, Web Development,
     UI/UX Design, Digital Marketing, SEO/SMO, and BPO Services.
+
+    Focus on practical, high-intent business questions (comparisons, cost guides,
+    how-to strategies) rather than generic overviews.
 
     Do NOT repeat or closely duplicate any of these already published topics:
     {avoid_list}
@@ -52,10 +57,18 @@ def generate_post(topic):
     client = get_client()
     prompt = f"""
     Write a detailed, SEO-friendly blog post for MajesticSoft (majesticsoft.in) about: "{topic}".
-    Include a brief, natural call-to-action at the end inviting readers to contact MajesticSoft.
+    Include:
+    - Practical insights, a concise HTML comparison or summary <table> where helpful,
+      and a short FAQ section at the end.
+    - A brief, natural call-to-action at the end inviting readers to contact MajesticSoft
+      at https://www.majesticsoft.in/ for their project.
+
     Return ONLY a JSON object with these exact keys:
     - "title": Catchy SEO title (under 65 characters)
-    - "content": Clean HTML body using <h2>, <h3>, <p>, <ul>, <li> tags (no <html>, <body>, or <h1> tags)
+    - "image_prompt": A concise, clean English prompt for a modern, professional blog header
+      illustration related to the topic (no text or words inside the image)
+    - "content": Clean HTML body using <h2>, <h3>, <p>, <ul>, <li>, <table> tags
+      (no <html>, <body>, or <h1> tags)
     - "labels": Array of 3 to 5 relevant Blogger category tags
     """
     response = client.models.generate_content(
@@ -66,6 +79,30 @@ def generate_post(topic):
         ),
     )
     return json.loads(response.text)
+
+
+def build_featured_image_html(image_prompt, alt_text):
+    encoded_prompt = urllib.parse.quote(image_prompt)
+    image_url = (
+        f"https://image.pollinations.ai/prompt/{encoded_prompt}"
+        "?width=1200&height=630&nologo=true"
+    )
+
+    # Pre-warm the image URL so it is already generated when visitors open the post
+    try:
+        req = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=45):
+            pass
+    except Exception as e:
+        print(f"Image pre-warm skipped: {e}")
+
+    safe_alt = alt_text.replace('"', "&quot;")
+    return (
+        f'<figure style="margin: 0 0 24px 0; text-align: center;">'
+        f'<img src="{image_url}" alt="{safe_alt}" '
+        f'style="max-width: 100%; height: auto; border-radius: 8px;" loading="lazy" />'
+        f'</figure>\n'
+    )
 
 
 def publish_to_blogger(post_data, is_draft=False):
@@ -79,10 +116,16 @@ def publish_to_blogger(post_data, is_draft=False):
     )
     service = build("blogger", "v3", credentials=creds)
 
+    image_html = build_featured_image_html(
+        post_data.get("image_prompt", post_data["title"]),
+        post_data["title"],
+    )
+    full_content = image_html + post_data["content"]
+
     body = {
         "kind": "blogger#post",
         "title": post_data["title"],
-        "content": post_data["content"],
+        "content": full_content,
         "labels": post_data.get("labels", []),
     }
     result = service.posts().insert(
@@ -108,9 +151,8 @@ def main():
 
     post_data = generate_post(topic)
 
-    # is_draft=False publishes live immediately
     url = publish_to_blogger(post_data, is_draft=False)
-    print(f"Published live: {post_data['title']} -> {url}")
+    print(f"Published live with image: {post_data['title']} -> {url}")
 
     past_topics.append(post_data["title"])
     save_lines(HISTORY_FILE, past_topics)
