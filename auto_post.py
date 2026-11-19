@@ -1,36 +1,58 @@
 import json
 import os
-import sys
 from google import genai
 from google.genai import types
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 TOPICS_FILE = "topics.txt"
+HISTORY_FILE = "published_topics.txt"
 
 
-def get_next_topic():
-    if not os.path.exists(TOPICS_FILE):
-        return None, []
-    with open(TOPICS_FILE, "r", encoding="utf-8") as f:
-        lines = [line.strip() for line in f if line.strip()]
-    if not lines:
-        return None, []
-    return lines[0], lines[1:]
+def get_client():
+    return genai.Client(
+        api_key=os.environ["GEMINI_API_KEY"],
+        http_options=types.HttpOptions(api_version="v1beta"),
+    )
 
 
-def save_remaining_topics(remaining):
-    with open(TOPICS_FILE, "w", encoding="utf-8") as f:
-        f.write("\n".join(remaining) + ("\n" if remaining else ""))
+def load_lines(filepath):
+    if not os.path.exists(filepath):
+        return []
+    with open(filepath, "r", encoding="utf-8") as f:
+        return [line.strip() for line in f if line.strip()]
+
+
+def save_lines(filepath, lines):
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + ("\n" if lines else ""))
+
+
+def generate_auto_topic(past_topics):
+    client = get_client()
+    avoid_list = "\n".join(f"- {t}" for t in past_topics[-50:]) if past_topics else "None yet"
+    prompt = f"""
+    Suggest ONE fresh, high-intent SEO blog topic for MajesticSoft (majesticsoft.in),
+    a digital solutions company offering Mobile App Development, Web Development,
+    UI/UX Design, Digital Marketing, SEO/SMO, and BPO Services.
+
+    Do NOT repeat or closely duplicate any of these already published topics:
+    {avoid_list}
+
+    Return ONLY the topic title as a single plain-text line (no quotes, no numbering).
+    """
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt,
+    )
+    return response.text.strip().strip('"')
 
 
 def generate_post(topic):
-    client = genai.Client(
-    api_key=os.environ["GEMINI_API_KEY"],
-    http_options=types.HttpOptions(api_version="v1beta"),
-)
+    client = get_client()
     prompt = f"""
-    Write a detailed, SEO-friendly blog post about: "{topic}".
+    Write a detailed, SEO-friendly blog post for MajesticSoft (majesticsoft.in) about: "{topic}".
+    Include a brief, natural call-to-action at the end inviting readers to contact MajesticSoft.
     Return ONLY a JSON object with these exact keys:
     - "title": Catchy SEO title (under 65 characters)
     - "content": Clean HTML body using <h2>, <h3>, <p>, <ul>, <li> tags (no <html>, <body>, or <h1> tags)
@@ -46,7 +68,7 @@ def generate_post(topic):
     return json.loads(response.text)
 
 
-def publish_to_blogger(post_data, is_draft=True):
+def publish_to_blogger(post_data, is_draft=False):
     creds = Credentials(
         token=None,
         refresh_token=os.environ["BLOGGER_REFRESH_TOKEN"],
@@ -72,18 +94,26 @@ def publish_to_blogger(post_data, is_draft=True):
 
 
 def main():
-    topic, remaining = get_next_topic()
-    if not topic:
-        print("No topics left in topics.txt. Exiting.")
-        sys.exit(0)
+    queued_topics = load_lines(TOPICS_FILE)
+    past_topics = load_lines(HISTORY_FILE)
 
-    print(f"Generating post for: {topic}")
+    if queued_topics:
+        topic = queued_topics[0]
+        remaining = queued_topics[1:]
+        save_lines(TOPICS_FILE, remaining)
+        print(f"Using queued topic: {topic}")
+    else:
+        topic = generate_auto_topic(past_topics)
+        print(f"Auto-generated topic: {topic}")
+
     post_data = generate_post(topic)
 
-    url = publish_to_blogger(post_data, is_draft=True)
-    print(f"Created post: {post_data['title']} -> {url}")
+    # is_draft=False publishes live immediately
+    url = publish_to_blogger(post_data, is_draft=False)
+    print(f"Published live: {post_data['title']} -> {url}")
 
-    save_remaining_topics(remaining)
+    past_topics.append(post_data["title"])
+    save_lines(HISTORY_FILE, past_topics)
 
 
 if __name__ == "__main__":
