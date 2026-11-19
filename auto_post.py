@@ -1,6 +1,7 @@
 from datetime import datetime
 import json
 import os
+import random
 import urllib.parse
 import urllib.request
 from google import genai
@@ -74,8 +75,11 @@ def generate_post(topic):
 
     Return ONLY a JSON object with these exact keys:
     - "title": Catchy SEO title (under 65 characters, using {CURRENT_YEAR} if a year is included)
-    - "image_prompt": A concise, clean English prompt for a modern, professional blog header
-      illustration related to the topic (no text or words inside the image)
+    - "image_prompt": A 15-25 word visual prompt for a high-end editorial tech blog hero image
+      related to the topic. Specify a clean, modern style (either realistic modern office photography
+      with shallow depth of field OR sleek minimalist 3D glassmorphism illustration), soft studio
+      lighting, cohesive blue/slate corporate color palette, ultra-sharp, 4k.
+      STRICTLY no text, no letters, no numbers, no logos, and no cluttered screens.
     - "content": Clean HTML body using <h2>, <h3>, <p>, <ul>, <li>, <table> tags
       (no <html>, <body>, or <h1> tags)
     - "labels": Array of 3 to 5 relevant Blogger category tags
@@ -91,15 +95,17 @@ def generate_post(topic):
 
 
 def build_featured_image_html(image_prompt, alt_text):
-    encoded_prompt = urllib.parse.quote(image_prompt)
+    clean_prompt = f"{image_prompt}, high resolution, sharp focus, no text, no watermark"
+    encoded_prompt = urllib.parse.quote(clean_prompt)
+    seed = random.randint(1, 999999)
     image_url = (
         f"https://image.pollinations.ai/prompt/{encoded_prompt}"
-        "?width=1200&height=630&nologo=true"
+        f"?width=1200&height=630&model=flux&enhance=true&nologo=true&seed={seed}"
     )
 
     try:
         req = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=45):
+        with urllib.request.urlopen(req, timeout=60):
             pass
     except Exception as e:
         print(f"Image pre-warm skipped: {e}")
@@ -108,7 +114,7 @@ def build_featured_image_html(image_prompt, alt_text):
     return (
         f'<figure style="margin: 0 0 24px 0; text-align: center;">'
         f'<img src="{image_url}" alt="{safe_alt}" '
-        f'style="max-width: 100%; height: auto; border-radius: 8px;" loading="lazy" />'
+        f'style="width: 100%; max-width: 1200px; height: auto; border-radius: 10px; display: block; margin: 0 auto;" />'
         f'</figure>\n'
     )
 
@@ -160,7 +166,7 @@ def main():
     post_data = generate_post(topic)
 
     url = publish_to_blogger(post_data, is_draft=False)
-    print(f"Published live with image: {post_data['title']} -> {url}")
+    print(f"Published live with Flux image: {post_data['title']} -> {url}")
 
     past_topics.append(post_data["title"])
     save_lines(HISTORY_FILE, past_topics)
