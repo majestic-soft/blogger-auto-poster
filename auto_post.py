@@ -1,3 +1,4 @@
+from datetime import datetime
 import json
 import os
 import urllib.parse
@@ -9,6 +10,8 @@ from googleapiclient.discovery import build
 
 TOPICS_FILE = "topics.txt"
 HISTORY_FILE = "published_topics.txt"
+CURRENT_YEAR = datetime.now().year
+CURRENT_DATE = datetime.now().strftime("%B %Y")
 
 
 def get_client():
@@ -34,12 +37,14 @@ def generate_auto_topic(past_topics):
     client = get_client()
     avoid_list = "\n".join(f"- {t}" for t in past_topics[-50:]) if past_topics else "None yet"
     prompt = f"""
+    Today's date is {CURRENT_DATE}.
     Suggest ONE specific, long-tail SEO blog topic for MajesticSoft (majesticsoft.in),
     a digital solutions company offering Mobile App Development, Web Development,
     UI/UX Design, Digital Marketing, SEO/SMO, and BPO Services.
 
     Focus on practical, high-intent business questions (comparisons, cost guides,
-    how-to strategies) rather than generic overviews.
+    how-to strategies) relevant to {CURRENT_YEAR}.
+    If you include a year in the topic, use {CURRENT_YEAR}. NEVER mention outdated years like 2023, 2024, or 2025.
 
     Do NOT repeat or closely duplicate any of these already published topics:
     {avoid_list}
@@ -56,15 +61,19 @@ def generate_auto_topic(past_topics):
 def generate_post(topic):
     client = get_client()
     prompt = f"""
-    Write a detailed, SEO-friendly blog post for MajesticSoft (majesticsoft.in) about: "{topic}".
-    Include:
-    - Practical insights, a concise HTML comparison or summary <table> where helpful,
+    Today's date is {CURRENT_DATE}. Write a detailed, SEO-friendly blog post for
+    MajesticSoft (majesticsoft.in) about: "{topic}".
+
+    Strict rules:
+    - Write from a {CURRENT_YEAR} perspective. Whenever mentioning the current year or latest trends, use {CURRENT_YEAR}.
+    - NEVER refer to 2023, 2024, or 2025 as the current year.
+    - Include practical insights, a concise HTML comparison or summary <table> where helpful,
       and a short FAQ section at the end.
-    - A brief, natural call-to-action at the end inviting readers to contact MajesticSoft
+    - Include a brief, natural call-to-action at the end inviting readers to contact MajesticSoft
       at https://www.majesticsoft.in/ for their project.
 
     Return ONLY a JSON object with these exact keys:
-    - "title": Catchy SEO title (under 65 characters)
+    - "title": Catchy SEO title (under 65 characters, using {CURRENT_YEAR} if a year is included)
     - "image_prompt": A concise, clean English prompt for a modern, professional blog header
       illustration related to the topic (no text or words inside the image)
     - "content": Clean HTML body using <h2>, <h3>, <p>, <ul>, <li>, <table> tags
@@ -88,7 +97,6 @@ def build_featured_image_html(image_prompt, alt_text):
         "?width=1200&height=630&nologo=true"
     )
 
-    # Pre-warm the image URL so it is already generated when visitors open the post
     try:
         req = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=45):
