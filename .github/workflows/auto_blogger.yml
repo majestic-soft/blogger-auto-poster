@@ -32,7 +32,7 @@ jobs:
           BLOG_ID: ${{ secrets.BLOG_ID }}
         run: python auto_post.py
 
-      - - name: Update topic files
+      - name: Update topic files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
