@@ -40,12 +40,17 @@ def generate_auto_topic(past_topics):
     prompt = f"""
     Today's date is {CURRENT_DATE}.
     Suggest ONE specific, long-tail SEO blog topic for MajesticSoft (majesticsoft.in),
-    a digital solutions company offering Mobile App Development, Web Development,
+    a digital solutions partner offering Mobile App Development, Web Development,
     UI/UX Design, Digital Marketing, SEO/SMO, and BPO Services.
 
-    Focus on practical, high-intent business questions (comparisons, cost guides,
-    how-to strategies) relevant to {CURRENT_YEAR}.
-    If you include a year in the topic, use {CURRENT_YEAR}. NEVER mention outdated years like 2023, 2024, or 2025.
+    Target Audience:
+    - Strictly target startups, SMEs, and enterprise decision-makers in the US, UK, and EU.
+    - Focus on high-intent international business questions: software/app development cost guides
+      in USD/GBP/EUR, hiring dedicated offshore development teams, outsourcing BPO/customer support,
+      or scaling digital marketing/SEO in Western markets.
+    - NEVER generate India-local topics or mention Indian domestic pricing (INR).
+    - Keep the topic relevant to {CURRENT_YEAR}. If you include a year, use {CURRENT_YEAR}.
+      NEVER mention outdated years like 2023, 2024, or 2025.
 
     Do NOT repeat or closely duplicate any of these already published topics:
     {avoid_list}
@@ -65,21 +70,26 @@ def generate_post(topic):
     Today's date is {CURRENT_DATE}. Write a detailed, SEO-friendly blog post for
     MajesticSoft (majesticsoft.in) about: "{topic}".
 
-    Strict rules:
+    Target Audience & Positioning:
+    - Write directly for founders, CTOs, and marketing leaders in the US, UK, and European Union.
+    - Use USD ($), GBP (£), or EUR (€) for any cost ranges or budget breakdowns—NEVER use INR.
+    - Reference Western market standards where relevant (e.g., GDPR compliance, time-zone overlap,
+      data security, and ROI benchmarks).
+    - Position MajesticSoft as a cost-effective, reliable offshore digital solutions and BPO partner
+      helping US, UK, and EU companies scale faster.
+
+    Strict Rules:
     - Write from a {CURRENT_YEAR} perspective. Whenever mentioning the current year or latest trends, use {CURRENT_YEAR}.
     - NEVER refer to 2023, 2024, or 2025 as the current year.
-    - Include practical insights, a concise HTML comparison or summary <table> where helpful,
+    - Include practical insights, a concise HTML comparison or cost-breakdown <table> where helpful,
       and a short FAQ section at the end.
-    - Include a brief, natural call-to-action at the end inviting readers to contact MajesticSoft
-      at https://www.majesticsoft.in/ for their project.
+    - Include a brief, natural call-to-action at the end inviting US, UK, and EU businesses to
+      discuss their project with MajesticSoft at https://www.majesticsoft.in/.
 
     Return ONLY a JSON object with these exact keys:
     - "title": Catchy SEO title (under 65 characters, using {CURRENT_YEAR} if a year is included)
-    - "image_prompt": A 15-25 word visual prompt for a high-end editorial tech blog hero image
-      related to the topic. Specify a clean, modern style (either realistic modern office photography
-      with shallow depth of field OR sleek minimalist 3D glassmorphism illustration), soft studio
-      lighting, cohesive blue/slate corporate color palette, ultra-sharp, 4k.
-      STRICTLY no text, no letters, no numbers, no logos, and no cluttered screens.
+    - "image_query": A simple 2 to 3 word stock photo search query directly matching the topic
+      (e.g., "software development team", "digital marketing analytics", "modern corporate office", "customer support headset")
     - "content": Clean HTML body using <h2>, <h3>, <p>, <ul>, <li>, <table> tags
       (no <html>, <body>, or <h1> tags)
     - "labels": Array of 3 to 5 relevant Blogger category tags
@@ -94,22 +104,37 @@ def generate_post(topic):
     return json.loads(response.text)
 
 
-def build_featured_image_html(image_prompt, alt_text):
-    clean_prompt = f"{image_prompt}, high resolution, sharp focus, no text, no watermark"
-    encoded_prompt = urllib.parse.quote(clean_prompt)
-    seed = random.randint(1, 999999)
-    image_url = (
-        f"https://image.pollinations.ai/prompt/{encoded_prompt}"
-        f"?width=1200&height=630&model=flux&enhance=true&nologo=true&seed={seed}"
-    )
+def fetch_unsplash_image(query):
+    access_key = os.environ["UNSPLASH_ACCESS_KEY"]
+    for search_term in [query, "modern business technology"]:
+        encoded = urllib.parse.quote(search_term)
+        url = (
+            f"https://api.unsplash.com/search/photos"
+            f"?query={encoded}&orientation=landscape&per_page=8"
+        )
+        req = urllib.request.Request(
+            url,
+            headers={
+                "Authorization": f"Client-ID {access_key}",
+                "User-Agent": "Mozilla/5.0",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                results = data.get("results", [])
+                if results:
+                    chosen = random.choice(results[:5])
+                    return chosen["urls"]["regular"]
+        except Exception as e:
+            print(f"Unsplash search failed for '{search_term}': {e}")
+    return None
 
-    try:
-        req = urllib.request.Request(image_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=60):
-            pass
-    except Exception as e:
-        print(f"Image pre-warm skipped: {e}")
 
+def build_featured_image_html(image_query, alt_text):
+    image_url = fetch_unsplash_image(image_query)
+    if not image_url:
+        return ""
     safe_alt = alt_text.replace('"', "&quot;")
     return (
         f'<figure style="margin: 0 0 24px 0; text-align: center;">'
@@ -131,7 +156,7 @@ def publish_to_blogger(post_data, is_draft=False):
     service = build("blogger", "v3", credentials=creds)
 
     image_html = build_featured_image_html(
-        post_data.get("image_prompt", post_data["title"]),
+        post_data.get("image_query", "modern business technology"),
         post_data["title"],
     )
     full_content = image_html + post_data["content"]
@@ -166,7 +191,7 @@ def main():
     post_data = generate_post(topic)
 
     url = publish_to_blogger(post_data, is_draft=False)
-    print(f"Published live with Flux image: {post_data['title']} -> {url}")
+    print(f"Published live with Unsplash image: {post_data['title']} -> {url}")
 
     past_topics.append(post_data["title"])
     save_lines(HISTORY_FILE, past_topics)
